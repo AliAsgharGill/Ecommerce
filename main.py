@@ -11,22 +11,38 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from tortoise.signals import post_save
 from typing import List, Optional, Type
 from tortoise import BaseDBAsyncClient
+
+
 from emails import *
 
-
+# response class
 from fastapi.responses import HTMLResponse
+
 import jwt
 from dotenv import dotenv_values
+
+# templates
 from fastapi.templating import Jinja2Templates
 
 
-config_crdentials = dotenv_values(".env")
+# image upload
+from fastapi import UploadFile, File
+from fastapi.staticfiles import StaticFiles
+from PIL import Image
+from io import BytesIO
+from typing import Optional
+import secrets
+
+config_credentials = dotenv_values(".env")
 
 
 app = FastAPI()
 
 
 oath2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+# static file setup config
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 @app.post("/token")
@@ -43,7 +59,7 @@ async def generate_token(request_form: OAuth2PasswordRequestForm = Depends()):
 
 async def get_current_user(token: str = Depends(oath2_scheme)):
     try:
-        payload = jwt.decode(token, config_crdentials["SECRET"], algorithms=["HS256"])
+        payload = jwt.decode(token, config_credentials["SECRET"], algorithms=["HS256"])
         user_id = payload["id"]
         user = await User.get(id=user_id)
         await user.save()
@@ -135,6 +151,46 @@ async def email_verification(token: str, request: Request):
 @app.get("/")
 async def root():
     return {"message": "Hello World"}
+
+
+@app.post("/uploadfile/profile")
+async def create_upload_file(
+    file: UploadFile = File(...), user: user_pydantic = Depends(get_current_user)
+):
+    FILEPATH = "./static/images"
+    filename = file.filename
+    extension = filename.split(".")[-1]
+
+    if extension not in ["jpg", "jpeg", "png", "webp"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only image files are allowed.",
+        )
+    token_name = secrets.token_hex(10) + "." + extension
+    path = f"{FILEPATH}/{token_name}"
+    file_content = await file.read()
+
+    with open(path, "wb") as f:
+        f.write(file_content)
+
+    # resize image
+    image = Image.open(path)
+    image = image.resize((400, 400))
+    image.save(path)
+
+    f.close()
+
+    business = await Business.get(owner=user)
+    owner = await business.owner
+
+    image_url = "localhost:8000/static/images/" + token_name
+    
+    if owner.id == user.id:
+        business.logo = token_name
+        await business.save()
+        return {"status": "ok", "data": f"{image_url}"}
+
+    raise HTTPException(404, detail="You are not the owner of this business.")
 
 
 # Registering the Tortoise ORM models with FastAPI
