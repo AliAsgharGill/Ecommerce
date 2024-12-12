@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request, status, HTTPException
 from tortoise.contrib.fastapi import register_tortoise
+from tortoise.contrib.pydantic import pydantic_queryset_creator
 from models import *
 
 # Authentication
@@ -75,6 +76,8 @@ async def get_current_user(token: str = Depends(oath2_scheme)):
 @app.post("/user/me")
 async def user_login(user: user_pydanticIn = Depends(get_current_user)):
     business = await Business.get(owner=user)
+    logo = business.logo
+    logo_path = f"localhost:8000/static/images/profile_images/{logo}"
     return {
         "status": "ok",
         "data": {
@@ -82,6 +85,7 @@ async def user_login(user: user_pydanticIn = Depends(get_current_user)):
             "email": user.email,
             "verified": user.is_verified,
             "joined_date": user.join_date.strftime("%b-%m-%Y"),
+            "logo": logo_path,
         },
     }
 
@@ -101,7 +105,7 @@ async def user_post_save(
         await business_pydantic.from_tortoise_orm(business_obj)
         # send email to user #Note
         await send_email(EmailSchema(email=[instance.email]), instance)
-    print(f"User {instance.username} has been created successfully.")
+    print(f"User {instance.username} called successfully.")
 
 
 @app.post("/registration")
@@ -231,6 +235,81 @@ async def upload_product_image(
             "data": f"localhost:8000/static/images/product_images/{token_name}",
         }
     raise HTTPException(404, detail="You are not the owner of this product.")
+
+
+# Product CRUD methods
+@app.post("/products")
+async def create_new_product(
+    product: product_pydanticIn, user: user_pydantic = Depends(get_current_user)
+):
+    product_info = product.dict(exclude_unset=True)
+    # to avoid division by zero
+    if product_info["original_price"] > 0:
+        product_info["percentage_discount"] = (
+            (product_info["original_price"] - product_info["new_price"])
+            / product_info["original_price"]
+            * 100
+        )
+        product_obj = await Product.create(
+            **product_info, business=user
+        )  # product created and linked to the business and saved in the database
+        new_product = await product_pydantic.from_tortoise_orm(
+            product_obj
+        )  # product to be sent to frontend
+        return {"status": "ok", "data": new_product}
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Original price must be greater than 0.",
+    )
+
+
+@app.get("/product")
+async def get_all_products():
+    response = await product_pydantic.from_queryset(Product.all())
+    return {"status": "ok", "data": response}
+
+
+@app.get("/product/{product_id}")
+async def get_product_by_id(product_id: int):
+    product = await Product.get(id=product_id)
+    business = await product.business
+    owner = await business.owner
+    response = await product_pydantic.from_tortoise_orm(product)
+
+    return {
+        "status": "ok",
+        "data": {
+            "product_details": response,
+            "business_details": {
+                "name": business.business_name,
+                "city": business.city,
+                "region": business.region,
+                "business_description": business.business_description,
+                "logo": f"localhost:8000/static/images/profile_images/{business.logo}",
+                "owner_id": owner.id,
+                "email": owner.email,
+                "joined_date": owner.join_date.strftime("%b-%m-%Y"),
+            },
+        },
+    }
+
+
+@app.delete("/product/{product_id}")
+async def delete_product(
+    product_id: int, user: user_pydantic = Depends(get_current_user)
+):
+    product = await Product.get(id=product_id)
+    business = await product.business
+    owner = await business.owner
+
+    if owner == user:
+        await product.delete()
+        return {"status": "ok", "data": "Product deleted successfully."}
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Not authenticated to perform this action.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 # Registering the Tortoise ORM models with FastAPI
