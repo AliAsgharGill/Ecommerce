@@ -46,6 +46,7 @@ oath2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
+# token generator configuration
 @app.post("/token")
 async def generate_token(request_form: OAuth2PasswordRequestForm = Depends()):
     token = await token_generator(request_form.username, request_form.password)
@@ -58,6 +59,7 @@ async def generate_token(request_form: OAuth2PasswordRequestForm = Depends()):
     # return {"access_token": user.id, "token_type": "bearer"}
 
 
+# current user details
 async def get_current_user(token: str = Depends(oath2_scheme)):
     try:
         payload = jwt.decode(token, config_credentials["SECRET"], algorithms=["HS256"])
@@ -73,6 +75,7 @@ async def get_current_user(token: str = Depends(oath2_scheme)):
         ) from exc
 
 
+# user details
 @app.post("/user/me")
 async def user_login(user: user_pydanticIn = Depends(get_current_user)):
     business = await Business.get(owner=user)
@@ -90,6 +93,7 @@ async def user_login(user: user_pydanticIn = Depends(get_current_user)):
     }
 
 
+# user signals
 @post_save(User)
 async def user_post_save(
     sender: Type[User],
@@ -108,6 +112,7 @@ async def user_post_save(
     print(f"User {instance.username} called successfully.")
 
 
+# user registration
 @app.post("/registration")
 async def user_registration(user: user_pydanticIn):
     user_info = user.dict(exclude_unset=True)
@@ -125,6 +130,7 @@ async def user_registration(user: user_pydanticIn):
 templates = Jinja2Templates(directory="templates")
 
 
+# email verification
 @app.get("/verification", response_class=HTMLResponse)
 async def email_verification(token: str, request: Request):
     try:
@@ -157,6 +163,7 @@ async def root():
     return {"message": "Hello World"}
 
 
+# business image upload
 @app.post("/uploadfile/profile")
 async def create_upload_file(
     file: UploadFile = File(...), user: user_pydantic = Depends(get_current_user)
@@ -197,6 +204,7 @@ async def create_upload_file(
     raise HTTPException(404, detail="You are not the owner of this business.")
 
 
+# product image upload
 @app.post("/uploadfile/product/{product_id}")
 async def upload_product_image(
     product_id: int,
@@ -238,6 +246,29 @@ async def upload_product_image(
             "data": f"localhost:8000/static/images/product_images/{token_name}",
         }
     raise HTTPException(404, detail="You are not the owner of this product.")
+
+
+# business update request
+@app.put("/business/{business_id}")
+async def update_business(
+    business_id: int,
+    updated_business_info: business_pydanticIn,
+    user: user_pydantic = Depends(get_current_user),
+):
+    business = await Business.get(id=business_id)
+    owner = await business.owner
+
+    if owner == user:
+        updated_business_info = updated_business_info.dict(exclude_unset=True)
+        business = await business.update_from_dict(updated_business_info)
+        await business.save()
+        response = await business_pydantic.from_tortoise_orm(business)
+        return {"status": "ok", "data": response}
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Not authenticated to perform this action.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 # Product CRUD methods
