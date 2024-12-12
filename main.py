@@ -227,8 +227,11 @@ async def upload_product_image(
     f.close()
 
     product = await Product.get(id=product_id)
-    if product.owner.id == user.id:
-        product.image = token_name
+    business = await product.business
+    owner = await business.owner
+    
+    if owner == user:
+        product.product_image = token_name
         await product.save()
         return {
             "status": "ok",
