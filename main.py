@@ -229,7 +229,7 @@ async def upload_product_image(
     product = await Product.get(id=product_id)
     business = await product.business
     owner = await business.owner
-    
+
     if owner == user:
         product.product_image = token_name
         await product.save()
@@ -295,6 +295,37 @@ async def get_product_by_id(product_id: int):
             },
         },
     }
+
+
+@app.put("/product/{product_id}")
+async def update_product(
+    product_id: int,
+    updated_product_info: product_pydanticIn,
+    user: user_pydantic = Depends(get_current_user),
+):
+    product = await Product.get(id=product_id)
+    business = await product.business
+    owner = await business.owner
+
+    updated_product_info = updated_product_info.dict(exclude_unset=True)
+    updated_product_info["date_published"] = datetime.now()
+
+    if user == owner and updated_product_info["original_price"] > 0:
+        updated_product_info["original_price"] = updated_product_info["original_price"]
+        updated_product_info["percentage_discount"] = (
+            (updated_product_info["original_price"] - updated_product_info["new_price"])
+            / updated_product_info["original_price"]
+            * 100
+        )
+        product = await product.update_from_dict(updated_product_info)
+        await product.save()
+        response = await product_pydantic.from_tortoise_orm(product)
+        return {"status": "ok", "data": response}
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Not authenticated to perform this action or original price must be greater than 0.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 @app.delete("/product/{product_id}")
