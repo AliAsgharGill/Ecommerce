@@ -39,20 +39,13 @@ async def verify_token(token: str):
         ) from exc
 
 
-async def verify_password(plaintext_password, hashed_password):
-    return pwd_context.verify(plaintext_password, hashed_password)
-
-
 async def authenticate_user(username: str, password: str):
     user = await User.get(username=username)
-    if user and verify_password(user.password, password):
-        return user
-    return False
-
-    # if not user:
-    #     return False
-    # if not pwd_context.verify(password, user.password):
-    #     return False
+    if not user:
+        return False
+    if not pwd_context.verify(password, user.password):
+        return False
+    return user
 
 
 async def token_generator(username: str, password: str):

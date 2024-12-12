@@ -30,7 +30,6 @@ conf = ConnectionConfig(
 )
 
 
-
 class EmailSchema(BaseModel):
     email: List[EmailStr]
 
