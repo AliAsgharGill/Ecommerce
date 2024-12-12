@@ -37,3 +37,36 @@ async def verify_token(token: str):
             detail="Invalid token",
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
+
+
+async def verify_password(plaintext_password, hashed_password):
+    return pwd_context.verify(plaintext_password, hashed_password)
+
+
+async def authenticate_user(username: str, password: str):
+    user = await User.get(username=username)
+    if user and verify_password(user.password, password):
+        return user
+    return False
+
+    # if not user:
+    #     return False
+    # if not pwd_context.verify(password, user.password):
+    #     return False
+
+
+async def token_generator(username: str, password: str):
+    user = await authenticate_user(username, password)
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    token_payload = {
+        "id": user.id,
+        "username": username,
+        # "password": password,
+    }
+    return jwt.encode(token_payload, config_crdentials["SECRET"], algorithm="HS256")
