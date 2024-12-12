@@ -157,7 +157,49 @@ async def root():
 async def create_upload_file(
     file: UploadFile = File(...), user: user_pydantic = Depends(get_current_user)
 ):
-    FILEPATH = "./static/images"
+    FILEPATH = "./static/images/profile_images"
+    filename = file.filename
+    extension = filename.split(".")[-1]
+
+    if extension not in ["jpg", "jpeg", "png", "webp"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only image files are allowed.",
+        )
+    token_name = secrets.token_hex(10) + "." + extension
+    path = f"{FILEPATH}/{token_name}"
+    file_content = await file.read()
+
+    with open(path, "wb") as f:
+        f.write(file_content)
+
+    # Pillow resize image
+    image = Image.open(path)
+    image = image.resize((400, 400))
+    image.save(path)
+
+    f.close()
+
+    business = await Business.get(owner=user)
+    owner = await business.owner
+
+    image_url = "localhost:8000/static/images/profile_images/" + token_name
+
+    if owner.id == user.id:
+        business.logo = token_name
+        await business.save()
+        return {"status": "ok", "data": f"{image_url}"}
+
+    raise HTTPException(404, detail="You are not the owner of this business.")
+
+
+@app.post("/uploadfile/product/{product_id}")
+async def upload_product_image(
+    product_id: int,
+    file: UploadFile = File(...),
+    user: user_pydantic = Depends(get_current_user),
+):
+    FILEPATH = "./static/images/product_images"
     filename = file.filename
     extension = filename.split(".")[-1]
 
@@ -180,17 +222,15 @@ async def create_upload_file(
 
     f.close()
 
-    business = await Business.get(owner=user)
-    owner = await business.owner
-
-    image_url = "localhost:8000/static/images/" + token_name
-    
-    if owner.id == user.id:
-        business.logo = token_name
-        await business.save()
-        return {"status": "ok", "data": f"{image_url}"}
-
-    raise HTTPException(404, detail="You are not the owner of this business.")
+    product = await Product.get(id=product_id)
+    if product.owner.id == user.id:
+        product.image = token_name
+        await product.save()
+        return {
+            "status": "ok",
+            "data": f"localhost:8000/static/images/product_images/{token_name}",
+        }
+    raise HTTPException(404, detail="You are not the owner of this product.")
 
 
 # Registering the Tortoise ORM models with FastAPI
