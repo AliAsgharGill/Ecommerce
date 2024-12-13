@@ -47,7 +47,7 @@ user_pydanticOut = pydantic_model_creator(
     name="UserOut",
     exclude=(
         "password",
-        "is_verified",
+        # "is_verified",
     ),
 )
 

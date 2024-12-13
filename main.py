@@ -77,17 +77,18 @@ async def get_current_user(token: str = Depends(oath2_scheme)):
 
 # user details
 @app.post("/user/me")
-async def user_login(user: user_pydanticIn = Depends(get_current_user)):
+async def user_login(user: user_pydanticOut = Depends(get_current_user)):
     business = await Business.get(owner=user)
     logo = business.logo
     logo_path = f"localhost:8000/static/images/profile_images/{logo}"
+
+    # This ensures that only the fields allowed in user_pydanticOut are included in user_data.
+    user_data = await user_pydanticOut.from_tortoise_orm(user)
+
     return {
         "status": "ok",
         "data": {
-            "username": user.username,
-            "email": user.email,
-            "verified": user.is_verified,
-            "joined_date": user.join_date.strftime("%b-%m-%Y"),
+            **user_data.model_dump(),  # Convert Pydantic model to a dictionary
             "logo": logo_path,
         },
     }
@@ -321,6 +322,7 @@ async def get_product_by_id(product_id: int):
                 "business_description": business.business_description,
                 "logo": f"localhost:8000/static/images/profile_images/{business.logo}",
                 "owner_id": owner.id,
+                "business_id": business.id,
                 "email": owner.email,
                 "joined_date": owner.join_date.strftime("%b-%m-%Y"),
             },
